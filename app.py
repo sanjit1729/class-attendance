@@ -138,27 +138,34 @@ with tab_mark:
             st.rerun()
 
         st.divider()
+        st.caption("Untick absentees, then press Save. Ticks are only sent when you save.")
 
-        for s in roster:
-            st.checkbox(
-                f'{s["roll_no"]} · {s["name"]}',
-                key=f'chk_{s["roll_no"]}',
+        with st.form("mark_form", border=False):
+            for s in roster:
+                st.checkbox(
+                    f'{s["roll_no"]} · {s["name"]}',
+                    key=f'chk_{s["roll_no"]}',
+                )
+            st.divider()
+            submitted = st.form_submit_button(
+                "Save attendance", type="primary", use_container_width=True
             )
 
-        st.divider()
-
-        present_count = sum(1 for r in rolls if st.session_state.get(f"chk_{r}"))
-        st.metric("Present", f"{present_count} / {len(rolls)}")
-
-        if st.button("Save attendance", type="primary", use_container_width=True):
+        if submitted:
+            marks = {r: bool(st.session_state[f"chk_{r}"]) for r in rolls}
+            present_count = sum(marks.values())
             payload = [
-                {"roll_no": r, "date": str(day), "present": bool(st.session_state[f"chk_{r}"])}
-                for r in rolls
+                {"roll_no": r, "date": str(day), "present": p} for r, p in marks.items()
             ]
             try:
                 sb.table("attendance").upsert(payload, on_conflict="roll_no,date").execute()
                 st.session_state.was_saved = True
-                st.success(f"Saved — {present_count} present, {len(rolls) - present_count} absent.")
+                st.success(
+                    f"Saved — {present_count} present, {len(rolls) - present_count} absent."
+                )
+                absentees = [r for r, p in marks.items() if not p]
+                if absentees:
+                    st.caption("Absent: " + ", ".join(absentees))
             except Exception as e:
                 st.error(f"Could not save: {e}")
 
