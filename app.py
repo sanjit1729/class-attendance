@@ -260,27 +260,77 @@ with tab_reports:
         summary = (df.groupby(["roll_no", "name"])
                      .agg(days=("present", "size"), present=("present", "sum"))
                      .reset_index())
+        summary["absent"] = summary["days"] - summary["present"]
         summary["percent"] = (summary["present"] / summary["days"] * 100).round(1)
         summary = summary.sort_values("percent")
 
-        st.dataframe(summary, use_container_width=True, hide_index=True)
+        view = st.radio(
+            "Show",
+            ["Absent by date", "Students with absences", "Everyone"],
+            horizontal=True,
+        )
+
+        # ---- Absentees listed date by date ----
+        if view == "Absent by date":
+            absent_rows = df[~df["present"]].sort_values(["date", "roll_no"])
+            if absent_rows.empty:
+                st.success("Nobody was absent in this range.")
+            else:
+                for d, grp in absent_rows.groupby("date"):
+                    st.markdown(f"**{d}** — {len(grp)} absent")
+                    st.dataframe(
+                        grp[["roll_no", "name", "section"]],
+                        use_container_width=True, hide_index=True,
+                    )
+                st.download_button(
+                    "Download absentee list (CSV)",
+                    absent_rows[["date", "roll_no", "name", "section"]]
+                        .to_csv(index=False).encode(),
+                    file_name=f"absentees_{start}_{end}.csv",
+                    mime="text/csv", use_container_width=True,
+                )
+
+        # ---- Only students who missed at least one class ----
+        elif view == "Students with absences":
+            missed = summary[summary["absent"] > 0]
+            if missed.empty:
+                st.success("Every student has full attendance in this range.")
+            else:
+                st.dataframe(
+                    missed[["roll_no", "name", "days", "absent", "percent"]],
+                    use_container_width=True, hide_index=True,
+                )
+                st.download_button(
+                    "Download (CSV)",
+                    missed.to_csv(index=False).encode(),
+                    file_name=f"with_absences_{start}_{end}.csv",
+                    mime="text/csv", use_container_width=True,
+                )
+
+        # ---- Full roster ----
+        else:
+            st.dataframe(
+                summary[["roll_no", "name", "days", "present", "absent", "percent"]],
+                use_container_width=True, hide_index=True,
+            )
+            grid = df.pivot_table(index=["roll_no", "name"], columns="date",
+                                  values="present", aggfunc="first")
+            grid = grid.replace({True: "P", False: "A"}).fillna("")
+            st.download_button("Download summary (CSV)",
+                               summary.to_csv(index=False).encode(),
+                               file_name=f"summary_{start}_{end}.csv",
+                               mime="text/csv", use_container_width=True)
+            st.download_button("Download day-by-day (CSV)",
+                               grid.to_csv().encode(),
+                               file_name=f"daywise_{start}_{end}.csv",
+                               mime="text/csv", use_container_width=True)
 
         low = summary[summary["percent"] < 75]
         if not low.empty:
-            st.warning(f"{len(low)} student(s) below 75%.")
-
-        grid = df.pivot_table(index=["roll_no", "name"], columns="date",
-                              values="present", aggfunc="first")
-        grid = grid.replace({True: "P", False: "A"}).fillna("")
-
-        st.download_button("Download summary (CSV)",
-                           summary.to_csv(index=False).encode(),
-                           file_name=f"summary_{start}_{end}.csv",
-                           mime="text/csv", use_container_width=True)
-        st.download_button("Download day-by-day (CSV)",
-                           grid.to_csv().encode(),
-                           file_name=f"daywise_{start}_{end}.csv",
-                           mime="text/csv", use_container_width=True)
+            st.warning(
+                f"{len(low)} student(s) below 75%: "
+                + ", ".join(low["roll_no"].tolist())
+            )
 
 st.divider()
 if st.button("Lock app"):
